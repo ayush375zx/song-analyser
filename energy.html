@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>upload song</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #05263c;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #uploadIcon {
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+        }
+
+        #myChart {
+            max-width: 100%;
+            max-height: 50%;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 50px;
+        }
+
+        .control-icon {
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .control-icon:active {
+            transform: scale(0.9);
+        }
+
+        #playbackSliderContainer {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 6px;
+            background: grey;
+            cursor: pointer;
+            overflow: hidden;
+        }
+
+        #playbackProgress {
+            width: 0;
+            height: 100%;
+            background: blue;
+            border-radius: 3px 0 0 3px;
+        }
+
+        #playbackHandle {
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: -3px;
+            left: 0;
+            transform: translateX(-50%);
+            opacity: 0; /* Initially hidden */
+            pointer-events: none; /* Prevent accidental interactions */
+            transition: opacity 0.3s ease;
+        }
+
+        /* Show the handle on hover */
+        #playbackSliderContainer:hover #playbackHandle {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="myChart"></canvas>
+
+    <div id="controls">
+        <img id="uploadIcon" src="upload.png" alt="Upload Song">
+        <img id="backwardIcon" class="control-icon" src="backward.png" alt="Backward 10s">
+        <img id="playPauseIcon" class="control-icon" src="play.png" alt="Play/Pause">
+        <img id="forwardIcon" class="control-icon" src="forward.png" alt="Forward 10s">
+        <img id="loopIcon" class="control-icon" src="loop.png" alt="Loop">
+    </div>
+
+    <div id="playbackSliderContainer">
+        <div id="playbackProgress"></div>
+        <div id="playbackHandle"></div>
+    </div>
+
+    <audio id="audioControls"></audio>
+
+    <script>
+        console.log("made by: ayush maurya")
+        const audio = document.getElementById('audioControls');
+        const playPauseIcon = document.getElementById('playPauseIcon');
+        const backwardIcon = document.getElementById('backwardIcon');
+        const forwardIcon = document.getElementById('forwardIcon');
+        const loopIcon = document.getElementById('loopIcon');
+        const playbackSliderContainer = document.getElementById('playbackSliderContainer');
+        const playbackProgress = document.getElementById('playbackProgress');
+        const playbackHandle = document.getElementById('playbackHandle');
+        const uploadIcon = document.getElementById('uploadIcon');
+
+        let isPlaying = false;
+        let isLooping = false;
+        let animationFrameId = null;
+
+        // Audio visualization
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(100).fill(''),
+                datasets: [{
+                    borderColor: 'rgba(0, 128, 255, 1)',
+                    borderWidth: 2,
+                    data: Array(100).fill(null),
+                    fill: false,
+                    pointRadius: false,
+                }],
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                scales: {
+                    y: { min: 0, max: 255, ticks: { display: false }, grid: { display: false } },
+                    x: { display: false, grid: { display: false } },
+                },
+                plugins: { legend: { display: false } },
+            },
+        });
+
+        function updateChart() {
+            analyser.getByteFrequencyData(dataArray);
+            const energy = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+
+            chart.data.datasets[0].data.push(energy);
+            chart.data.datasets[0].data.shift();
+            chart.update();
+        }
+
+        function animateChart() {
+            if (audio.paused || audio.ended) {
+                cancelAnimationFrame(animationFrameId);
+                return;
+            }
+
+            updateChart();
+            animationFrameId = requestAnimationFrame(animateChart);
+        }
+
+        // File upload functionality
+        uploadIcon.addEventListener('click', () => {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'audio/*';
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const fileURL = URL.createObjectURL(file);
+                    audio.src = fileURL;
+
+                    const source = audioContext.createMediaElementSource(audio);
+                    source.connect(analyser);
+                    analyser.connect(audioContext.destination);
+
+                    audioContext.resume();
+                }
+            });
+            fileInput.click();
+        });
+
+        // Play/Pause functionality
+        playPauseIcon.addEventListener('click', () => {
+            if (isPlaying) {
+                audio.pause();
+                playPauseIcon.src = 'play.png';
+            } else {
+                audio.play();
+                playPauseIcon.src = 'pause.png';
+                animateChart();
+            }
+            isPlaying = !isPlaying;
+        });
+
+        // Backward/Forward functionality
+        backwardIcon.addEventListener('click', () => {
+            audio.currentTime = Math.max(0, audio.currentTime - 10);
+        });
+
+        forwardIcon.addEventListener('click', () => {
+            audio.currentTime = Math.min(audio.duration, audio.currentTime + 10);
+        });
+
+        // Loop functionality
+        loopIcon.addEventListener('click', () => {
+            isLooping = !isLooping;
+            audio.loop = isLooping;
+            loopIcon.title = isLooping ? 'Loop: ON' : 'Loop: OFF';
+        });
+
+        // Playback progress
+        audio.addEventListener('timeupdate', () => {
+            const progress = (audio.currentTime / audio.duration) * 100;
+            playbackProgress.style.width = `${progress}%`;
+            playbackHandle.style.left = `${progress}%`;
+        });
+
+        playbackSliderContainer.addEventListener('click', (event) => {
+            const rect = playbackSliderContainer.getBoundingClientRect();
+            const progress = (event.clientX - rect.left) / rect.width;
+            audio.currentTime = progress * audio.duration;
+        });
+
+        // Stop chart updates when the song ends
+        audio.addEventListener('ended', () => {
+            cancelAnimationFrame(animationFrameId);
+            isPlaying = false;
+            playPauseIcon.src = 'play.png';
+        });
+    </script>
+</body>
+</html>
